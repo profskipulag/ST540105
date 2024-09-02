@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+
+<!-- Load d3.js -->
+<script src="https://d3js.org/d3.v7.js"></script>
+<script src="https://d3js.org/topojson.v2.min.js"></script>
+<!--
+
+<script src="d3.v7.js"></script>
+<script src="topojson.v2.min.js"></script>
+-->
+
+<!-- Create a div where the graph will take place -->
+<div id="violin1"></div>
+
+<style>
+    .country {
+      fill: lightgray;
+      stroke: #000;
+    }
+    .graticule {
+      fill: none;
+      stroke: #333;
+      stroke-width: .5px;
+    }
+    .foreground {
+      fill: none;
+      stroke: #333;
+      stroke-width: 1.5px;
+    }
+    .local_id{
+        cursor:pointer;
+        text-shadow: 2px 2px 4px #000000;
+    }
+    .inSVGB {
+      pointer-events: all;
+      cursor: pointer;
+      fill: red;
+    }
+    .timeline{
+        cursor: pointer;
+        stroke-width: 2.0px;
+        stroke: black;
+
+
+    }
+    .violin{
+        cursor: pointer;
+
+
+
+    }
+
+   
+
+  </style>
+
+
+<script>
+
+
+
+// helper function returns max and min of 
+function minmax_violin_data(data){
+
+      // get the bounds of the data
+      let min_timestamp = 8640000000000000;
+      let max_timestamp = -8640000000000000;
+      let min_sample = 9999999999999999;
+      let max_sample = -9999999999999999;
+
+      data.forEach(element => {
+
+        if (min_timestamp > element.timestamp ){ min_timestamp = element.timestamp};
+
+        if (max_timestamp < element.timestamp){ max_timestamp = element.timestamp};
+        
+        let this_max_sample = d3.max(element.samples);
+        
+        let this_min_sample = d3.min(element.samples);
+        
+        if (max_sample < this_max_sample){ max_sample = this_max_sample};
+        
+        if (min_sample > this_min_sample){ min_sample = this_min_sample};
+      });
+
+      return([min_timestamp, max_timestamp, min_sample, max_sample ]);
+}
+
+
+
+
+
+
+
+
+ // set the dimensions and margins of the graph
+ const margin = {top: 10, right: 30, bottom: 30, left: 40},
+        width = window.innerWidth - margin.left - margin.right,
+        height = window.innerHeight - margin.top - margin.bottom;
+
+    // append the svg object to the body of the page
+    const svg = d3
+        .select("#violin1")
+            .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+    
+
+
+Promise.all([
+    d3.json("data.json"),
+    d3.json("https://unpkg.com/world-atlas@2.0.2/countries-10m.json")
+  // d3.json("countries-10m.json")
+
+]).then(async function([data, world]){
+
+    const starting_sample_index = 0;
+
+    let sample_fluxes = {};
+
+    data.flux.forEach(d=>sample_fluxes[d.timestamp]=d.samples[starting_sample_index]);
+
+    let sample_heights = {};
+    
+    data.height.forEach(d=>sample_heights[d.timestamp]=d.samples[starting_sample_index]);
+
+    const starting_json_string = JSON.stringify({"fluxes":sample_fluxes, "heights":sample_heights});
+
+    const response = await fetch(
+            "http://0.0.0.0:8080",
+           { method: "POST",
+            body: starting_json_string}
+        );
+
+    let sample_contours = await response.json();
+
+    console.log(sample_contours);
+
+
+    console.log(data)
+    // CONCENTRATIONS
+    num_stations = Object.keys(data.conc).length;
+
+
+
+    const times  = data.height.map(d=>d.timestamp);
+
+    let i_time = 5;
+    
+
+
+//************************************************************************************************************************************************************
+// MAP
+//************************************************************************************************************************************************************
+
+
+    // MAP
+    // from https://medium.com/@amy.degenaro/introduction-to-digital-cartography-geojson-and-d3-js-c27f066aa84
+
+    // EPSG 8088 / ISN 2016 / Lambert 2016 
+    // https://epsg.io/8088
+    const myProjection = d3.geoConicEqualArea()
+        // set standard parallels
+        .parallels([64.25, 65.75])
+        // set latitude of origin
+        .center([0,65])
+        // set central meridian to -19
+        .rotate([19, 0]) 
+        // set zoom
+        .scale(60000)
+
+
+    let vent = [{'lon':-22.2725,'lat':63.905}]; 
+
+    let dx = 1400;
+
+    let dy = -800;
+
+    let map_translation = "translate("+dx+","+dy+")";
+
+    const graticule = d3.geoGraticule().step([0.25,0.25]);
+
+    const path = d3.geoPath().projection(myProjection);
+
+    function lonlat_to_x(d) { return myProjection([d.lon, d.lat])[0];};
+
+    function lonlat_to_y(d) { return myProjection([d.lon, d.lat])[1];} ; 
+
+   
+    
+    console.log(graticule);
+    
+
+    svg.append("path")
+        .datum(graticule)
+        .attr("class", "graticule")
+        .attr("d", path)
+        .attr("transform",map_translation);
+
+    svg.append("path")
+        .datum(graticule.outline)
+        .attr("class", "foreground")
+        .attr("d", path)
+        .attr("transform", map_translation);
+
+    let focusText = svg
+        .append('g')
+        .append('text')
+        .attr("x", 50)
+        .attr("y", height);
+
+    let currentDateText = svg
+        .append('g')
+        .append('text')
+        .attr("x", 400)
+        .attr("y", height);
+
+    function svg_on_mousemove(event) { 
+
+        let [x,y] = d3.pointer(event);
+
+        let xy = [x-dx, y-dy];
+
+        let [lat, lon] = myProjection.invert(xy);
+
+        let text = "Cursor location: " + d3.format(".4f")(lat)+" "+ d3.format(".4f")(lon);
+
+        focusText
+            .text(text)
+            .selectAll("text");
+
+        }
+
+    svg.on("mousemove", svg_on_mousemove);
+
+    // EXCEEDENCE PROBABILITY CONTOURS
+    let exceedence = svg.append("g")
+        .selectAll("path")
+        .data(data.contours[0].feature_collection.features)
+        
+    exceedence.enter().append("path")
+        .attr("d",path)
+        .attr("class", "exceedence")
+        .attr("transform", map_translation)
+        .style('stroke', (d,i) =>{return d.properties.stroke;})
+        .style('fill',(d,i) =>{return d.properties.stroke;})
+        //.style('fill', "transparent")
+        .style('stroke-width', (d,i)=>{return d.properties['stroke-width'];});
+
+
+    // SAMPLE PROBABILITY CONTOURS
+    let scontours  = svg.append("g")
+        .selectAll("path")
+        .data(sample_contours[0].feature_collection.features)
+
+    scontours.enter().append("path")
+        .attr("d",path)
+        .attr("class", "scontours")
+        .attr("transform", map_translation)
+        //.style('stroke', (d,i) =>{return d.properties.stroke;})
+        //.style('fill',(d,i) =>{return d.properties.stroke;})
+        .style('fill', "transparent")
+        .style("stroke", "black")
+        .style("stroke-width",1)
+        //.style('stroke-width', (d,i)=>{return d.properties['stroke-width'];});
+
+
+
+    // COUTRY OUTLINES
+    svg.append("g")
+        .selectAll("path")
+        .data(topojson.feature(world, world.objects.countries).features)
+        .enter().append("path")
+            .attr("d", path)
+            .attr("class", "country")
+            .attr("transform",map_translation)
+            .style('fill', "transparent");
+
+    // FAll3D DOMAIN BOUNDING BOX
+    svg.append("g")
+        .selectAll("path")
+        .data(data.bbox.features)
+        .enter().append("path")
+            .attr("d",path)
+            .attr("class", "country")
+            .attr("transform", map_translation)
+            .style('stroke', (d,i) =>{return d.properties.stroke;})
+            .style('fill', "transparent")
+            .style('stroke-width', (d,i)=>{return d.properties['stroke-width'];});
+
+  
+
+    // VENT POINTS
+    svg.append("g")
+        .selectAll("circle")
+        .data(vent)
+        .enter().append("circle")
+            .attr("cx", lonlat_to_x)
+            .attr("cy", lonlat_to_y)
+            .attr("r", 2.5)
+            .attr("transform", map_translation);
+
+        
+    // STATION POINTS
+    svg.append("g")
+        .selectAll("circle")
+        .data(data.stations)
+        .enter().append("circle")
+            .attr("cx", lonlat_to_x)
+            .attr("cy", lonlat_to_y)
+            .attr("r", 2.5)
+            .attr("transform",map_translation); 
+
+    // STATION LABELS
+    svg.append("g")
+        .selectAll("text")
+        .data(data.stations)
+        .enter().append("text")
+            .attr("x", lonlat_to_x)
+            .attr("y", lonlat_to_y)
+            .attr("class", "local_id")
+            .text((d)=>{return d.local_id;})
+            .attr("transform", map_translation)
+            .on("click",(event)=>{console.log(event.srcElement.textContent)});
+
+
+
+
+
+//************************************************************************************************************************************************************
+// FLUXES
+//************************************************************************************************************************************************************
+
+
+
+    async function dragend(event){
+
+        d3.select("body").style("cursor","wait");
+
+
+        let heights = {};
+
+        d3.selectAll(".lineheight").each(function (d){
+            let sel = d3.select(this);
+            let height = parseFloat(sel.attr("data-height"));
+            let timestamp = sel.attr("data-timestamp").toString();
+            heights[timestamp]=height;
+        });
+
+        let fluxes = {};
+
+        d3.selectAll(".lineflux").each(function (d){
+            let sel = d3.select(this);
+            let flux = parseFloat(sel.attr("data-flux"));
+            let timestamp = sel.attr("data-timestamp").toString();
+            fluxes[timestamp]=flux;
+        });
+
+        const starting_json_string = JSON.stringify({"fluxes":fluxes, "heights":heights});
+
+        sample_contours = await d3.json(
+                "http://0.0.0.0:8080",
+                { 
+                    method: "POST",
+                    headers: {"Content-Type":"application/json"},
+                    body: starting_json_string
+                });
+
+            
+        d3.select("body").style("cursor","auto");
+
+        const dateindex = currentDateText.attr("data-dateindex");
+
+
+        svg.selectAll("path.scontours").remove();
+
+        scontours
+            .data(sample_contours[dateindex].feature_collection.features)
+            .enter().append("path")
+                .attr("d",path)
+                .attr("class", "scontours")
+                .attr("transform", map_translation)
+                .style('stroke', "black")
+                .style('fill',"transparent")
+                .style('stroke-width', "1");
+
+
+
+        }
+
+
+    function onclick_violin(event){
+
+        const dateindex_string = d3.select(this).attr("data-dateindex"); //event.target.getAttribute("data-dateindex");
+
+        const dateindex = parseInt(dateindex_string);
+
+        const timestamp = times[dateindex];
+
+        const date = new Date(timestamp);
+
+        svg.selectAll(".violin")
+            .style("stroke","green")
+            .style("stroke-width","1");
+
+        svg.selectAll(".violin[data-dateindex='"+dateindex_string+"']")
+            .style("stroke","black")
+            .style("stroke-width","3")
+
+        svg.selectAll("path.exceedence").remove();
+
+        exceedence
+            .data(data.contours[dateindex].feature_collection.features)
+            .enter().append("path")
+                .attr("d",path)
+                .attr("class", "exceedence")
+                .attr("transform", map_translation)
+                .style('stroke', (d,i) =>{return d.properties.stroke;})
+                .style('fill',(d,i) =>{return d.properties.stroke;})
+                .style('stroke-width', (d,i)=>{return d.properties['stroke-width'];});
+
+        currentDateText
+            .text("Map date: " + date.toISOString())
+            .attr("data-dateindex", dateindex)
+            .attr("data-timestamp", timestamp)
+            .selectAll("text");
+
+
+        svg.selectAll("path.scontours").remove();
+
+        scontours
+            .data(sample_contours[dateindex].feature_collection.features)
+            .enter().append("path")
+                .attr("d",path)
+                .attr("class", "scontours")
+                .attr("transform", map_translation)
+                .style('stroke', "black")
+                .style('fill',"transparent")
+                .style('stroke-width', "1");
+
+
+    };
+
+    const xrange_flux = [0, 0.4*width];
+
+    const yrange_flux =[ 0.2*height,0];
+
+    const xtranslate_flux = "translate(0," + 0.2*height + ")";
+
+    const ytranslate_flux = "translate(0,0)";
+
+    const [min_timestamp_flux, max_timestamp_flux, min_sample_flux, max_sample_flux ] = minmax_violin_data(data.flux);
+
+    const start_date_flux = new Date(min_timestamp_flux);
+
+    const end_date_flux = new Date(max_timestamp_flux);
+
+    const y_flux = d3.scaleLinear()
+        .domain([ min_sample_flux, max_sample_flux ])          
+        .range(yrange_flux);
+
+    const x_flux = d3.scaleTime()
+        .range(xrange_flux)
+        .domain([start_date_flux, end_date_flux ]);
+
+    //let sample_fluxes = {};
+
+    //data.flux.forEach(d=>sample_fluxes[d.timestamp]=d.samples[0]);
+
+
+    // Features of density estimate
+    const kde_flux = kernelDensityEstimator(kernelEpanechnikov(.2), y_flux.ticks(10));
+
+    const sumstat_flux = data.flux.map(
+                    function(d, idx){ 
+                    let date = new Date(d.timestamp);
+                    let density = kde_flux(d.samples);
+                    return({key:date, value:density, dateindex:idx});
+                    });
+
+    // What is the biggest value that the density estimate reach?
+    let maxNum_flux = 0
+        for ( i in sumstat_flux ){
+            allBins = sumstat_flux[i].value
+            kdeValues = allBins.map(function(a){return a[1]})
+            biggest = d3.max(kdeValues)
+            if (biggest > maxNum_flux) { maxNum_flux = biggest }
+        }
+
+    
+    // The maximum width of a violin must be x.bandwidth = the width dedicated to a group
+    const xNum_flux = d3.scaleLinear()
+        .range([-10.0, 10.0])
+        .domain([-maxNum_flux, maxNum_flux])//([-0.01,0.01])
+
+    svg.append("g")
+        .attr("transform", ytranslate_flux)
+        .call( d3.axisLeft(y_flux).tickFormat(d3.format(".1e")) );
+
+    svg.append("g")
+        .attr("transform", ytranslate_flux)
+        .call(d3.axisBottom(x_flux));
+
+    svg.selectAll("myViolin")
+        .data(sumstat_flux)
+        .enter()        // So now we are working group per group
+        .append("g")
+        .attr("transform", function(d){ return("translate(" + x_flux(d.key) +" ,0)") } ) // Translation on the right to be at the group position
+        .append("path")
+            .attr("data-dateindex",d=>d.dateindex.toString())
+            .datum(function(d){ return(d.value)})     // So now we are working density per density
+            .style("stroke", "#00ff00")
+            .style("fill","#69b3a2")
+            .attr("class","violin")
+            .attr("d", d3.area()
+                .x0(function(d){ return(xNum_flux(-d[1])) } )
+                .x1(function(d){ return(xNum_flux(d[1])) } )
+                .y(function(d){ return(y_flux(d[0])) } )
+                .curve(d3.curveCatmullRom)    // This makes the line smoother to give the violin appearance. Try d3.curveStep to see the difference
+            )
+            .on("click",onclick_violin);
+
+        
+
+
+    svg.selectAll("line0")
+        .data(data.flux)
+        .enter()
+        .append("line")
+        .attr("x1", d=>x_flux(new Date(d.timestamp - 30*60*1000)))
+        .attr("x2", d=>x_flux(new Date(d.timestamp + 30*60*1000)))
+        .attr("y1", d=>y_flux(d.samples[0]))
+        .attr("y2", d=>y_flux(d.samples[0]))
+        .attr("data-timestamp",d=>d.timestamp)
+        .attr("data-flux", d=>d.samples[0])
+        .attr("class","lineflux")
+        .style("cursor","ns-resize")
+        .style("stroke-width","3")
+        .style("stroke","black")
+        .call(
+            d3.drag()
+            .on("drag",function(event){
+                                d3.select(this)
+                                .attr("y1",event.y)
+                                .attr("y2", event.y)
+                                .attr("data-flux", y_flux.invert(event.y))
+                            })
+            .on("end",dragend)
+            );
+
+
+
+//************************************************************************************************************************************************************
+// HEIGHTS
+//************************************************************************************************************************************************************
+
+    const xrange_height = [0, 0.4*width];
+
+    const yrange_height =[0.5*height, 0.3*height];
+
+    const xtranslate_height = "translate(0," + 0.4*height + ")";
+
+    const ytranslate_height = "translate(0,0)";
+
+    const [min_timestamp_height, max_timestamp_height, min_sample_height, max_sample_height ] = minmax_violin_data(data.height);
+
+    const start_date_height = new Date(min_timestamp_height);
+
+    const end_date_height = new Date(max_timestamp_height);
+
+    const y_height = d3.scaleLinear()
+        .domain([ min_sample_height, max_sample_height ])          
+        .range(yrange_height);
+
+    const x_height = d3.scaleTime()
+        .range(xrange_height)
+        .domain([start_date_height, end_date_height ]);
+
+
+
+    // Features of density estimate
+    const kde = kernelDensityEstimator(kernelEpanechnikov(.2), y_height.ticks(10));
+
+    const sumstat_height = data.height.map(
+                function(d, idx){ 
+                let date = new Date(d.timestamp);
+                let density = kde(d.samples);
+                return({key:date, value:density, dateindex:idx});
+                });
+
+
+    // What is the biggest value that the density estimate reach?
+    let maxNum = 0
+    for ( i in sumstat_height ){
+        allBins = sumstat_height[i].value
+        kdeValues = allBins.map(function(a){return a[1]})
+        biggest = d3.max(kdeValues)
+        if (biggest > maxNum) { maxNum = biggest }
+    }
+
+    
+    // The maximum width of a violin must be x.bandwidth = the width dedicated to a group
+    const xNum_height = d3.scaleLinear()
+        .range([-10.0, 10.0])
+        .domain([-maxNum, maxNum])//([-0.01,0.01])
+
+    svg.append("g")
+        .attr("transform", ytranslate_height)
+        .call( d3.axisLeft(y_height).tickFormat(d3.format(".1e")) );
+  
+    svg.append("g")
+        .attr("transform", xtranslate_height)
+        .call(d3.axisBottom(x_height));
+
+    svg.selectAll("myViolin")
+        .data(sumstat_height)
+        .enter()        // So now we are working group per group
+        .append("g")
+        .attr("transform", function(d){ return("translate(" + x_height(d.key) +" ,0)") } ) // Translation on the right to be at the group position
+        .append("path")
+            .attr("data-dateindex",d=>d.dateindex.toString())
+            .datum(function(d){ return(d.value)})     // So now we are working density per density
+            .style("stroke", "#00ff00")
+            .style("fill","#69b3a2")
+            .attr("class","violin")
+            .attr("d", d3.area()
+                .x0(function(d){ return(xNum_height(-d[1])) } )
+                .x1(function(d){ return(xNum_height(d[1])) } )
+                .y(function(d){ return(y_height(d[0])) } )
+                .curve(d3.curveCatmullRom)    // This makes the line smoother to give the violin appearance. Try d3.curveStep to see the difference
+            )
+            .on("mouseover",onclick_violin);
+
+
+    svg.selectAll("line0")
+        .data(data.height)
+        .enter()
+        .append("line")
+        .attr("x1", d=>x_height(new Date(d.timestamp - 30*60*1000)))
+        .attr("x2", d=>x_height(new Date(d.timestamp + 30*60*1000)))
+        .attr("y1", d=>y_height(d.samples[0]))
+        .attr("y2", d=>y_height(d.samples[0]))
+        .attr("data-timestamp",d=>d.timestamp)
+        .attr("class","lineheight")
+        .attr("data-height", d=>d.samples[0])
+        .style("cursor","ns-resize")
+        .style("stroke-width","3")
+        .style("stroke","black")
+        .call(
+            d3.drag()
+                .on("drag",function(event){
+                                d3.select(this)
+                                .attr("y1",event.y)
+                                .attr("y2", event.y)
+                                .attr("data-height", y_height.invert(event.y))
+                            })
+                .on("end",dragend)
+            );
+
+
+//************************************************************************************************************************************************************
+// CONTOUR MAP
+//************************************************************************************************************************************************************
+
+/*
+
+    let contour_colors =  [
+        "#fff5f0",
+            "#fee3d6",
+            "#fcc4ad",
+            "#fca082",
+            "#fb7c5c",
+            "#f6553c",
+            "#e32f27",
+            "#c2161b",
+            "#9d0d14"]
+
+    contour_colors.forEach((color, index)=>{
+        svg.append("rect")
+            .attr("width",20)
+            .attr("height",20)
+            .style("fill",color)
+            .style("stroke","black")
+            .attr("transform", "translate(" +(index*20).toString()+ ",400)")
+            .on("mouseover",(event)=>(console.log(event.target)));
+
+
+        svg.append('text')
+        .attr("x", index*20)
+        .attr("y",height-100 )
+        .text(index.toString())
+
+    })
+*/
+/*
+    let timeline_height = svg.append("line")  
+        .classed("timeline",true)        // attach a line
+            .attr("x1", x_height(new Date(times[0])) )    // x position of the first end of the line
+            .attr("y1", y_height.range()[0])      // y position of the first end of the line
+            .attr("x2", x_height(new Date(times[0])))     // x position of the second end of the line
+            .attr("y2", y_height.range()[1])
+*/
+
+    
+ /*
+
+// FLUXES
+const [x_flux, y_flux] = plot_violin(
+    data.flux, 
+    [0, 0.4*width],
+    [0.5*height, 0.3*height], 
+    "translate(0," + 0.4*height + ")",
+    "translate(0,0)",
+    onclick
+);
+
+
+
+
+let i = 0;
+
+for (const [key, value] of Object.entries(data.conc)){
+
+    plot_violin(
+        value, 
+        [0.5*width, width],
+        [i*height/num_stations, (i+1)*height/num_stations], 
+        "translate(0," + 0.4*height + ")",
+        "translate(" + 0.5*width + ",0)",
+        onclick
+    )
+    i = i + 1;
+
+}
+
+
+ const [x_height, y_height] = plot_violin(
+        data.height, 
+        [0, 0.4*width],
+        [0.2*height, 0], 
+        "translate(0," + 0.4*height + ")",
+        "translate(0,0)",
+        onclick
+    );
+
+    let line_height_x = x_height(new Date(times[i_time]));
+    let line_height_y1 =  y_height.range()[0];
+    let line_height_y2 =   y_height.range()[1];
+
+    svg.append("line")  
+        .classed("timeline",true)        // attach a line
+        .attr("x1", line_height_x)     // x position of the first end of the line
+        .attr("y1", line_height_y1)      // y position of the first end of the line
+        .attr("x2", line_height_x)     // x position of the second end of the line
+        .attr("y2", line_height_y2)
+        .on("pointerenter", (event)=>console.log("mouseover"));
+
+       // .attr("transform", "translate(0," + 0.4*height + ")");
+
+;    // y position of the second end of the line
+
+   */
+
+})
+
+
+
+
+
+
+// 2 functions needed for kernel density estimate
+function kernelDensityEstimator(kernel, X) {
+  return function(V) {
+    return X.map(function(x) {
+      return [x, d3.mean(V, function(v) { return kernel(x - v); })];
+    });
+  };
+}
+function kernelEpanechnikov(k) {
+  return function(v) {
+    return Math.abs(v /= k) <= 1 ? 0.75 * (1 - v * v) / k : 0;
+  };
+}
+</script>
