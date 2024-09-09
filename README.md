@@ -1,4 +1,4 @@
-# ST540206 visualize.py
+# ST540105 visualize.py
 UNDER DEVELOPMENT! CURRENTLY ONLY VERY BASIC IMPLEMENTATION
 
 A repository for displaying the posterior distribution over Eruption Source Parameters (ESPs) and ground $SO_2$ concentrations in an interactive website. The respository consists of a website that visualises the probability distributions as time series of violin plots and maps of exceedence probabilities and concentrations, and an API that allows the user to 
@@ -33,7 +33,7 @@ The website is implemented in D3.js, the backend API in python using FastAPI.
 ## To download the repository
 Clone the repository to your machine
 
-    git clone https://github.com/profskipulag/ST540206.git
+    git clone https://github.com/profskipulag/ST540105.git
 
 You will be asked for your username and password. For the password github now requires a token:
 - on github, click yur user icon in the top right corner
@@ -50,7 +50,7 @@ Create a new conda environment from the environment.yaml file:
 
 Activate the environment
 
-    conda activate st540206
+    conda activate st540105
     
 Start the server
 
