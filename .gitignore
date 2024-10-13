@@ -1,3 +1,5 @@
+app/data/*.nc
+notebook.ipynb
 pyf3d/*
 mnt/*
 pyem/*
