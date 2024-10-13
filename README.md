@@ -20,13 +20,13 @@ The website is implemented in D3.js, the backend API in python using FastAPI.
     ├── environment.yaml      - configures conda environment with required packages
     ├── LICENSE               - GPL 3
     ├── app                   
-    │   └── main.py           - python FastAPI app
+    |   ├── data              - directory that holds DT5405 / DT5404 / DT5402 for use by website api
+    |   ├── websiteapi.py     - API code that processes requests from the website
+    │   └── main.py           - python FastAPI app that serves the website and the API
     ├── static                - static files served up by the server
-    │   ├── test2.html        - website
-    │   └── data.json         - data for plotting
+    │   └── test3.html        - website
     ├── README.md             - this file
     ├── .gitignore            - files to be ignored by git
-    ├── emulator.nc           - data used by the emulator
     └── screenshot.png        - screenshot of the website in use
 
 
@@ -41,7 +41,7 @@ You will be asked for your username and password. For the password github now re
 - enter you authentifcation code
 - under note give it a name, click "repo" to select al check boxes, then click generate token
 - copy result enter it as password
-- IMPORTANT - unzip emulator_data.zip
+- IMPORTANT - requires appropriately named DT5402/04/05 netcdf files in app/data - examples not included as they are too big
 
 ## To run the server
 Create a new conda environment from the environment.yaml file:
@@ -58,7 +58,7 @@ Start the server
     
 Then navigate to this address in your browser
 
-    http://0.0.0.0:8080/static/test2.html
+    http://0.0.0.0:8080/static/test3.html
 
 The page should look like this
 
